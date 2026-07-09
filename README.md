@@ -1,12 +1,17 @@
 # FS Janitor
 
-> A modern filesystem lifecycle manager for macOS.
+> The complete filesystem maintenance toolkit for macOS.
 >
-> Keep your filesystem clean automatically with scheduled expirations, directory watchers, and configurable cleanup policies.
+> Storage cleanup, scheduled expirations, directory watchers and a maintenance score — one tool, a scriptable CLI and a full-screen TUI.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Platform](https://img.shields.io/badge/platform-macOS-black.svg)
-![Language](https://img.shields.io/badge/language-Go-00ADD8.svg)
+[![CI](https://github.com/BadRat-in/fs-janitor/actions/workflows/ci.yml/badge.svg)](https://github.com/BadRat-in/fs-janitor/actions/workflows/ci.yml)
+[![Release](https://github.com/BadRat-in/fs-janitor/actions/workflows/release.yml/badge.svg)](https://github.com/BadRat-in/fs-janitor/actions/workflows/release.yml)
+[![Latest Release](https://img.shields.io/github/v/release/BadRat-in/fs-janitor?sort=semver&color=00ADD8)](https://github.com/BadRat-in/fs-janitor/releases/latest)
+[![Go Reference](https://pkg.go.dev/badge/github.com/BadRat-in/fs-janitor.svg)](https://pkg.go.dev/github.com/BadRat-in/fs-janitor)
+[![Go Report Card](https://goreportcard.com/badge/github.com/BadRat-in/fs-janitor)](https://goreportcard.com/report/github.com/BadRat-in/fs-janitor)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/BadRat-in/fs-janitor?logo=go)](go.mod)
+[![Platform](https://img.shields.io/badge/platform-macOS-lightgrey?logo=apple)](https://www.apple.com/macos)
+[![License: MIT](https://img.shields.io/github/license/BadRat-in/fs-janitor?color=blue)](LICENSE)
 
 ## Install
 
