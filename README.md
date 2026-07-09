@@ -8,6 +8,25 @@
 ![Platform](https://img.shields.io/badge/platform-macOS-black.svg)
 ![Language](https://img.shields.io/badge/language-Go-00ADD8.svg)
 
+## Install
+
+**From source** (Go 1.26+):
+
+```bash
+git clone https://github.com/BadRat-in/fs-janitor.git
+cd fs-janitor
+make build          # produces ./bin/fsj
+# or install into GOBIN:
+make install
+```
+
+```bash
+go install github.com/BadRat-in/fs-janitor/cmd/fsj@latest
+```
+
+FS Janitor is a single, cgo-free static binary (the SQLite job store uses the
+pure-Go `modernc.org/sqlite` driver). macOS 10.15+.
+
 ## Why?
 
 Most computers slowly become cluttered over time.
@@ -29,7 +48,7 @@ Instead of manually cleaning them every few months, **FS Janitor** automates the
 Schedule a file or folder to be removed after a specific duration.
 
 ```bash
-fs-janitor expire ~/Downloads/archive.zip 30d
+fsj expire ~/Downloads/archive.zip 30d
 ```
 
 Supports:
@@ -54,11 +73,14 @@ Continuously keep directories clean.
 Example:
 
 ```bash
-fs-janitor watch ~/Downloads \
+fsj watch ~/Downloads \
     --after 30d \
     --from modified \
-    --trash
+    --pattern '*.zip'
 ```
+
+Files are moved to the Trash by default; add `--delete` for permanent removal,
+`--recursive` to descend into subfolders, and `--dry-run` to preview.
 
 Every cleanup run, FS Janitor automatically removes files matching the configured policy.
 
@@ -92,12 +114,17 @@ Manage everything from a modern Bubble Tea interface.
 Everything available in the TUI is also accessible from the command line.
 
 ```bash
-fs-janitor watch
-fs-janitor expire
-fs-janitor list
-fs-janitor remove
-fs-janitor run
-fs-janitor doctor
+fsj                     # open the interactive dashboard (TUI)
+fsj expire <path> <dur> # schedule a one-time expiration
+fsj watch  <path> …     # create a recurring directory watcher
+fsj list                # list jobs
+fsj remove <id>…        # remove jobs
+fsj run [--dry-run]     # run every due job now
+fsj clean               # preview reclaimable leftovers & caches
+fsj score               # maintenance score + storage health
+fsj history             # recent run log
+fsj install|uninstall   # manage the scheduled LaunchAgent
+fsj doctor              # environment diagnostics
 ```
 
 ---

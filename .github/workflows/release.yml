@@ -2,7 +2,7 @@
 # release — tag-driven build & publish pipeline
 # ----------------------------------------------------------------------------
 # Triggered on a semver tag push (`v*.*.*`). For each macOS target it builds a
-# version-stamped static `cleanx` binary, optionally codesigns + notarizes it,
+# version-stamped static `fsj` binary, optionally codesigns + notarizes it,
 # tars it, and records its sha256. The aggregate job publishes a GitHub Release
 # with all tarballs plus a combined checksums file.
 #
@@ -79,10 +79,10 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          out="cleanx-${{ matrix.asset }}"
+          out="fsj-${{ matrix.asset }}"
           go build -trimpath \
             -ldflags "-s -w -X main.version=${VERSION}" \
-            -o "$out" ./cmd/cleanx
+            -o "$out" ./cmd/fsj
 
       # Codesign with a Developer ID (hardened runtime) and notarize. A bare
       # Mach-O binary cannot be stapled, so notarization is verified online by
@@ -94,7 +94,7 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          bin="cleanx-${{ matrix.asset }}"
+          bin="fsj-${{ matrix.asset }}"
 
           # Import the Developer ID certificate into an ephemeral keychain.
           KEYCHAIN="$RUNNER_TEMP/codesign.keychain-db"
@@ -113,7 +113,7 @@ jobs:
           # Stable reverse-DNS identifier (same across both arches) rather than
           # the arch-suffixed filename codesign would derive by default.
           codesign --force --timestamp --options runtime \
-            --identifier com.rkinnovate.cleanx \
+            --identifier com.rkinnovate.fsj \
             --sign "$APPLE_DEVELOPER_ID" "$bin"
           codesign --verify --strict --verbose=2 "$bin"
 
@@ -128,21 +128,21 @@ jobs:
 
       - name: Note unsigned build
         if: env.APPLE_CERTIFICATE_BASE64 == ''
-        run: echo "::warning::No Apple signing secrets set — shipping an UNSIGNED binary. Homebrew/curl installs run fine; browser downloads need 'xattr -d com.apple.quarantine ./cleanx'."
+        run: echo "::warning::No Apple signing secrets set — shipping an UNSIGNED binary. Homebrew/curl installs run fine; browser downloads need 'xattr -d com.apple.quarantine ./fsj'."
 
       - name: Package (tarball + checksum)
         run: |
-          out="cleanx-${{ matrix.asset }}"
+          out="fsj-${{ matrix.asset }}"
           tar -czf "${out}.tar.gz" "$out"
           shasum -a 256 "${out}.tar.gz" > "${out}.tar.gz.sha256"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cleanx-${{ matrix.asset }}
+          name: fsj-${{ matrix.asset }}
           path: |
-            cleanx-${{ matrix.asset }}.tar.gz
-            cleanx-${{ matrix.asset }}.tar.gz.sha256
+            fsj-${{ matrix.asset }}.tar.gz
+            fsj-${{ matrix.asset }}.tar.gz.sha256
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
@@ -211,23 +211,23 @@ jobs:
           cd tap
           awk -v ver="$VERSION" -v tag="$TAG" -v repo="$GITHUB_REPOSITORY" -v arm="$ARM_SHA" -v amd="$AMD_SHA" '
             /^  version / { print "  version \"" ver "\""; next }
-            /cleanx-darwin-arm64\.tar\.gz/ {
-              print "      url \"https://github.com/" repo "/releases/download/" tag "/cleanx-darwin-arm64.tar.gz\""
+            /fsj-darwin-arm64\.tar\.gz/ {
+              print "      url \"https://github.com/" repo "/releases/download/" tag "/fsj-darwin-arm64.tar.gz\""
               getline; print "      sha256 \"" arm "\""; next
             }
-            /cleanx-darwin-amd64\.tar\.gz/ {
-              print "      url \"https://github.com/" repo "/releases/download/" tag "/cleanx-darwin-amd64.tar.gz\""
+            /fsj-darwin-amd64\.tar\.gz/ {
+              print "      url \"https://github.com/" repo "/releases/download/" tag "/fsj-darwin-amd64.tar.gz\""
               getline; print "      sha256 \"" amd "\""; next
             }
             { print }
-          ' Formula/cleanx.rb > Formula/cleanx.rb.new
-          mv Formula/cleanx.rb.new Formula/cleanx.rb
+          ' Formula/fsj.rb > Formula/fsj.rb.new
+          mv Formula/fsj.rb.new Formula/fsj.rb
           if git diff --quiet; then echo "formula already current"; exit 0; fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "cleanx ${VERSION}"
+          git commit -am "fsj ${VERSION}"
           git push
 
       - name: Note tap not configured
         if: env.HOMEBREW_TAP_DEPLOY_KEY == ''
-        run: echo "::warning::HOMEBREW_TAP_DEPLOY_KEY not set — skipping automatic Homebrew tap bump. Update BadRat-in/homebrew-tap/Formula/cleanx.rb by hand (see docs/HOMEBREW.md)."
+        run: echo "::warning::HOMEBREW_TAP_DEPLOY_KEY not set — skipping automatic Homebrew tap bump. Update BadRat-in/homebrew-tap/Formula/fsj.rb by hand (see docs/HOMEBREW.md)."

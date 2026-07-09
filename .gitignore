@@ -3,7 +3,6 @@
 # Log files
 *.log
 *.txt
-.CleanX_log_cache.txt
 
 # macOS system files
 .DS_Store

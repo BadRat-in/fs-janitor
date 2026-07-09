@@ -4,7 +4,7 @@
 # Mirrors the must-pass-before-commit set the project standards call out:
 # gofmt (formatting), `go vet` (static checks), and the full `go test` sweep.
 #
-# The job runs on macOS because CleanX is a macOS-only tool: its scanner and the
+# The job runs on macOS because FS Janitor is a macOS-only tool: its scanner and the
 # installed-app index shell out to macOS utilities (`defaults`, `tmutil`,
 # `launchctl`, `stat -f`). Building/testing on Linux would compile but exercise
 # none of the platform behaviour, so macos-latest is the only meaningful target.
@@ -64,4 +64,4 @@ jobs:
         run: go test ./...
 
       - name: go build (smoke)
-        run: go build -o /dev/null ./cmd/cleanx
+        run: go build -o /dev/null ./cmd/fsj
