@@ -15,6 +15,12 @@
 
 ## Install
 
+**Homebrew** (recommended):
+
+```bash
+brew install BadRat-in/tap/fsj
+```
+
 **From source** (Go 1.26+):
 
 ```bash
