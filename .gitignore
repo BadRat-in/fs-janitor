@@ -1,0 +1,70 @@
+# FS Janitor - Git Ignore File
+
+# Log files
+*.log
+*.txt
+.CleanX_log_cache.txt
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Backup files
+*.bak
+*.swp
+*.swo
+*~
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-*
+
+# Test artifacts
+test_results/
+tmp/
+temp/
+
+# Environment files
+.env
+.env.local
+
+# Archive files (if created)
+*.zip
+*.tar.gz
+*.tar.bz2
+
+# Go build artifacts
+/bin/
+/fsj
+/cmd/fsj/fsj
+fsj-darwin-*
+*.sha256
+checksums.txt
+
+# Product requirements doc — kept local, never published
+PRD.md
+# Go workspace / vendor (not used yet, but keep noise out)
+/vendor/
+go.work
+go.work.sum

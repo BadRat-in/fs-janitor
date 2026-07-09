@@ -1,0 +1,67 @@
+# ============================================================================
+# CI — PR / push-to-main quality gate
+# ----------------------------------------------------------------------------
+# Mirrors the must-pass-before-commit set the project standards call out:
+# gofmt (formatting), `go vet` (static checks), and the full `go test` sweep.
+#
+# The job runs on macOS because CleanX is a macOS-only tool: its scanner and the
+# installed-app index shell out to macOS utilities (`defaults`, `tmutil`,
+# `launchctl`, `stat -f`). Building/testing on Linux would compile but exercise
+# none of the platform behaviour, so macos-latest is the only meaningful target.
+#
+# Cross-platform packaging is irrelevant here (macOS only) — release artifacts
+# are built on tag push in release.yml.
+# ============================================================================
+
+name: CI
+
+# paths-ignore keeps the (10x-billed) macOS job from running on changes that
+# can't affect the build — docs, markdown, the reference zsh script, and CI meta.
+on:
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - '.gitignore'
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - '.gitignore'
+
+# Cancel an in-flight run when a new commit lands on the same ref so we don't
+# burn runner minutes on stale commits.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: gofmt + vet + test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt (fail on unformatted files)
+        run: |
+          unformatted="$(gofmt -l internal cmd)"
+          if [[ -n "$unformatted" ]]; then
+            echo "::error::These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: go build (smoke)
+        run: go build -o /dev/null ./cmd/cleanx
