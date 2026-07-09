@@ -56,7 +56,11 @@ func New(dbPath string) (*App, error) {
 	ix := appindex.Build(appindex.DefaultAppDirs(home), cfg.TokenStopwords, nil)
 	probes := osprobe.New()
 	if dbPath == "" {
-		dbPath = store.DefaultPath(home)
+		if env := os.Getenv("FSJ_DB"); env != "" {
+			dbPath = env // override for tests, sandboxes, or a custom data location
+		} else {
+			dbPath = store.DefaultPath(home)
+		}
 	}
 	st, err := store.Open(dbPath)
 	if err != nil {
