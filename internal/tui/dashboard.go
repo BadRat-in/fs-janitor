@@ -9,6 +9,7 @@ import (
 
 	"github.com/BadRat-in/fs-janitor/internal/humanize"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // keyDashboard handles Dashboard keys: 'r' triggers a rescan/recompute.
@@ -25,7 +26,7 @@ func (m Model) keyDashboard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // viewDashboard renders the score, meter and category breakdown.
 func (m Model) viewDashboard(w int) string {
 	var b strings.Builder
-	b.WriteString(styleTitle.Render("Storage Health") + "\n\n")
+	b.WriteString(panelTitle("Storage Health") + "\n\n")
 
 	if m.report == nil || m.loadingScore {
 		b.WriteString(m.spinner.View() + styleDim.Render(" Scanning your machine…") + "\n")
@@ -33,42 +34,45 @@ func (m Model) viewDashboard(w int) string {
 	}
 	r := m.report
 
-	// Big score line + meter.
-	scoreStyle := styleGood
-	if r.Score < 75 {
-		scoreStyle = styleWarn
-	}
-	if r.Score < 40 {
-		scoreStyle = styleDanger
-	}
-	b.WriteString(scoreStyle.Render(itoa(r.Score)+" / 100") + "  " +
-		styleDim.Render("grade ") + scoreStyle.Render(r.Grade) + "\n")
-	b.WriteString(bar(float64(r.Score)/100, minInt(w-8, 40), r.Score >= 40) + "\n\n")
+	col := scoreColor(r.Score)
+	scoreStyle := lipgloss.NewStyle().Bold(true).Foreground(col)
 
-	// Category breakdown.
+	// Big score + meter.
+	b.WriteString(scoreStyle.Render(itoa(r.Score)+" / 100") +
+		styleDim.Render("   grade ") + badge(" "+r.Grade+" ", col) + "\n")
+	b.WriteString(bar(float64(r.Score)/100, minInt(w-6, 44), col) + "\n\n")
+
+	// Category breakdown, aligned.
 	for _, c := range r.Categories {
 		name := padRight(c.Name, 16)
-		status := styleGood.Render("✓ " + c.Status)
-		if c.Warn {
-			status = styleWarn.Render("⚠ " + c.Status)
-		} else if c.Status != "Clean" {
-			status = styleDim.Render(c.Status)
+		var status string
+		switch {
+		case c.Warn:
+			status = styleWarn.Render("⚠ " + padRight(c.Status, 8))
+		case c.Status == "Clean":
+			status = styleGood.Render("✓ " + padRight("Clean", 8))
+		default:
+			status = styleDim.Render("  " + padRight(c.Status, 8))
 		}
 		line := "  " + styleBody.Render(name) + status
 		if c.Detail != "" {
-			line += styleDim.Render("  — " + c.Detail)
+			line += styleFaint.Render("  " + c.Detail)
 		}
 		b.WriteString(line + "\n")
 	}
 
-	// Footer stats.
-	b.WriteString("\n" + styleHeading.Render("Potential recovery ") +
-		styleGood.Render(humanize.Size(r.PotentialKB)) + "\n")
-	b.WriteString(styleDim.Render("Reclaimed all-time  ") +
-		styleBody.Render(humanize.Size(r.LifetimeFreedKB)) + "\n")
-	b.WriteString(styleDim.Render("Active jobs         ") +
-		styleBody.Render(itoa(r.ActiveJobs)) + "\n")
+	// Headline stats.
+	b.WriteString("\n")
+	b.WriteString(stat("Potential recovery", styleGood.Render(humanize.Size(r.PotentialKB))))
+	b.WriteString(stat("Reclaimed all-time", styleBody.Render(humanize.Size(r.LifetimeFreedKB))))
+	b.WriteString(stat("Active jobs", styleBody.Render(itoa(r.ActiveJobs))))
+	b.WriteString("\n" + styleFaint.Render("press r to rescan"))
 	return b.String()
+}
+
+// stat renders one aligned "label  value" line for the dashboard footer.
+func stat(label, value string) string {
+	return styleDim.Render(padRight(label, 20)) + value + "\n"
 }
 
 // minInt returns the smaller of two ints.

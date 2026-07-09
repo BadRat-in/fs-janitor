@@ -1,10 +1,44 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/BadRat-in/fs-janitor/internal/job"
+	"github.com/charmbracelet/bubbles/spinner"
 )
+
+// TestViewRendersWithoutPanic exercises the full chrome + every module and the
+// modal overlays at several terminal sizes, asserting View never panics and
+// always produces output. It uses a nil app because View performs no service
+// calls (data is loaded via commands, not during render).
+func TestViewRendersWithoutPanic(t *testing.T) {
+	sizes := [][2]int{{100, 30}, {60, 20}, {20, 8}, {200, 50}}
+	for _, sz := range sizes {
+		for mod := module(0); mod < moduleCount; mod++ {
+			m := Model{width: sz[0], height: sz[1], active: mod, spinner: spinner.New()}
+			if out := m.View(); strings.TrimSpace(out) == "" {
+				t.Errorf("empty view at %dx%d module %d", sz[0], sz[1], mod)
+			}
+		}
+	}
+	// Overlays.
+	base := Model{width: 100, height: 30, spinner: spinner.New()}
+	base.showHelp = true
+	if base.View() == "" {
+		t.Error("help overlay rendered empty")
+	}
+	base.showHelp = false
+	base.confirm = "Delete everything?"
+	if base.View() == "" {
+		t.Error("confirm overlay rendered empty")
+	}
+	base.confirm = ""
+	base.form = newJobForm()
+	if base.View() == "" {
+		t.Error("form rendered empty")
+	}
+}
 
 func TestTruncate(t *testing.T) {
 	if got := truncate("hello", 10); got != "hello" {

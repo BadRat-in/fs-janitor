@@ -91,7 +91,7 @@ func (m Model) installAutomation() error {
 // viewSettings renders the settings rows with their current values.
 func (m Model) viewSettings(w int) string {
 	var b strings.Builder
-	b.WriteString(styleTitle.Render("Settings") + "\n\n")
+	b.WriteString(panelTitle("Settings") + "\n\n")
 	values := []string{
 		onOff(m.bySize),
 		onOff(m.includeToolchains),

@@ -29,7 +29,7 @@ func (m Model) keyHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // viewHistory renders the visible window of run records.
 func (m Model) viewHistory(w int) string {
 	var b strings.Builder
-	b.WriteString(styleTitle.Render("History") + "\n\n")
+	b.WriteString(panelTitle("History") + "\n\n")
 	if len(m.runs) == 0 {
 		b.WriteString(styleDim.Render("No runs recorded yet.") + "\n")
 		return b.String()

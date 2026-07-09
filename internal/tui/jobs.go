@@ -270,32 +270,70 @@ func (m Model) submitForm() (tea.Model, tea.Cmd) {
 	return m, m.loadJobsCmd()
 }
 
-// viewJobs renders the job list (or the form when open).
+// viewJobs renders the job list plus a detail panel for the highlighted job.
 func (m Model) viewJobs(w int) string {
 	var b strings.Builder
-	b.WriteString(styleTitle.Render("Jobs") + "\n\n")
+	b.WriteString(panelTitle("Jobs") + "\n\n")
 	if len(m.jobs) == 0 {
-		b.WriteString(styleDim.Render("No jobs yet. Press ") + styleBody.Render("n") +
-			styleDim.Render(" to create one — e.g. watch ~/Downloads, delete files older than 30d.") + "\n")
+		b.WriteString(styleDim.Render("No jobs yet. Press ") + styleGood.Render("n") +
+			styleDim.Render(" to create one.") + "\n\n")
+		b.WriteString(styleFaint.Render("Example: watch ~/Downloads, trash files older than 30d.") + "\n")
 		return b.String()
 	}
 	for i, j := range m.jobs {
-		cursor := "  "
-		if i == m.jobCursor {
-			cursor = styleCursor.Render("▸ ")
-		}
-		state := styleGood.Render("●")
+		state := "●"
+		stateStyle := styleGood
 		if !j.Enabled {
-			state = styleDim.Render("○")
+			state, stateStyle = "○", styleFaint
 		}
-		kind := styleHeading.Render(padRight(string(j.Kind), 7))
-		desc := truncate(j.Describe(), maxInt(20, w-16))
-		b.WriteString(cursor + state + " " + kind + styleBody.Render(desc) + "\n")
+		kind := padRight(string(j.Kind), 7)
+		desc := truncate(j.Describe(), maxInt(20, w-14))
+		if i == m.jobCursor {
+			b.WriteString(styleCursor.Render("▌") +
+				rowSelected.Render(" "+state+" "+kind+desc) + "\n")
+			continue
+		}
+		b.WriteString("  " + stateStyle.Render(state) + " " +
+			styleHeading.Render(kind) + styleBody.Render(desc) + "\n")
+	}
+
+	// Detail panel for the selected job.
+	if j := m.currentJob(); j != nil {
+		b.WriteString("\n" + styleFaint.Render(strings.Repeat("─", minInt(w, 48))) + "\n")
+		b.WriteString(detailRow("Target", j.Path))
+		b.WriteString(detailRow("Action", string(j.Action)))
+		if j.Kind == job.KindWatch {
+			b.WriteString(detailRow("Age basis", string(j.Basis)))
+			if len(j.Patterns) > 0 {
+				b.WriteString(detailRow("Patterns", strings.Join(j.Patterns, " ")))
+			}
+			b.WriteString(detailRow("Recursive", yesNo(j.Recursive)))
+		} else {
+			b.WriteString(detailRow("Due", j.DueAt.Format("2006-01-02 15:04")))
+		}
+		if j.DryRun {
+			b.WriteString(detailRow("Mode", "dry-run"))
+		}
+		last := "never"
 		if !j.LastRun.IsZero() {
-			b.WriteString(styleDim.Render("      last run "+j.LastRun.Format("2006-01-02 15:04")) + "\n")
+			last = j.LastRun.Format("2006-01-02 15:04")
 		}
+		b.WriteString(detailRow("Last run", last))
 	}
 	return b.String()
+}
+
+// detailRow renders one aligned "label: value" line in the job detail panel.
+func detailRow(label, value string) string {
+	return styleDim.Render("  "+padRight(label, 11)) + styleBody.Render(value) + "\n"
+}
+
+// yesNo renders a boolean as yes/no.
+func yesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
 }
 
 // viewForm renders the inline new-job editor.

@@ -117,6 +117,7 @@ func (m Model) keyCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scanning = true
 		m.cleanupItems = nil
 		m.cleanDone = false
+		m.cleanDrill = false
 		return m, tea.Batch(m.spinner.Tick, m.scanCmd())
 	case "up", "k":
 		if m.cleanCursor > 0 {
@@ -130,17 +131,26 @@ func (m Model) keyCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if it := m.cleanupCurrent(); it != nil {
 			it.selected = !it.selected
 		}
+	case "d":
+		m.cleanDrill = !m.cleanDrill
 	case "a":
 		all := m.allCleanupSelected()
 		for _, it := range m.cleanupItems {
 			it.selected = !all
 		}
 	case "enter":
-		if len(m.selectedCleanup()) == 0 {
+		sel := m.selectedCleanup()
+		if len(sel) == 0 {
 			return m, nil
 		}
-		m.cleaning = true
-		return m, tea.Batch(m.spinner.Tick, m.cleanCmd())
+		// Cleanup is permanent (caches are re-downloadable) — confirm first.
+		var total int64
+		for _, it := range sel {
+			total += it.sizeKB
+		}
+		m.confirm = "Permanently clean " + itoa(len(sel)) + " item(s), freeing " +
+			humanize.Size(total) + "? This cannot be undone."
+		return m, nil
 	}
 	return m, nil
 }
@@ -167,7 +177,7 @@ func (m Model) allCleanupSelected() bool {
 // viewCleanup renders the scan state, the selectable list, or the result.
 func (m Model) viewCleanup(w int) string {
 	var b strings.Builder
-	b.WriteString(styleTitle.Render("Cleanup") + "\n\n")
+	b.WriteString(panelTitle("Cleanup") + "\n\n")
 
 	if m.scanning {
 		b.WriteString(m.spinner.View() + styleDim.Render(" Scanning for leftovers & caches…") + "\n")
@@ -203,21 +213,40 @@ func (m Model) viewCleanup(w int) string {
 			b.WriteString("\n" + style.Render("── "+it.section+" ──") + "\n")
 			lastSec = it.section
 		}
-		check := "[ ]"
+		mark := "[ ]"
 		if it.selected {
-			check = styleGood.Render("[x]")
+			mark = "[x]"
 		}
 		label := padRight(truncate(it.label, 32), 32)
-		size := styleGood.Render(humanize.Size(it.sizeKB))
-		cursor := "  "
+		size := padRight(humanize.Size(it.sizeKB), 9)
 		if i == m.cleanCursor {
-			cursor = styleCursor.Render("▸ ")
+			b.WriteString(styleCursor.Render("▌") + rowSelected.Render(" "+mark+" "+label+" "+size) + "\n")
+			if m.cleanDrill {
+				for _, p := range m.drillPaths(it) {
+					b.WriteString(styleFaint.Render("     "+p) + "\n")
+				}
+			}
+			continue
 		}
-		b.WriteString(cursor + check + " " + styleBody.Render(label) + " " + size + "\n")
+		checkR := styleDim.Render(mark)
+		if it.selected {
+			checkR = styleGood.Render(mark)
+		}
+		b.WriteString("  " + checkR + " " + styleBody.Render(label) + " " + styleGood.Render(humanize.Size(it.sizeKB)) + "\n")
 	}
 	b.WriteString("\n" + styleDim.Render("Selected ") + styleGood.Render(humanize.Size(selTotal)) +
-		styleDim.Render(" of ") + styleBody.Render(humanize.Size(total)) + "\n")
+		styleDim.Render(" of ") + styleBody.Render(humanize.Size(total)) +
+		styleFaint.Render("   press d to preview paths") + "\n")
 	return b.String()
+}
+
+// drillPaths returns the paths (or tool command) shown when drilling into the
+// highlighted cleanup item.
+func (m Model) drillPaths(it *litem) []string {
+	if it.tool != nil {
+		return []string{"runs: " + it.tool.Command()}
+	}
+	return it.paths
 }
 
 // truncate shortens s to n runes with an ellipsis when needed.

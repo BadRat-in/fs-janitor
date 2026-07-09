@@ -17,6 +17,7 @@ package tui
 
 import (
 	"os"
+	"strings"
 	"time"
 
 	"github.com/BadRat-in/fs-janitor/internal/analytics"
@@ -56,6 +57,8 @@ type Model struct {
 	spinner       spinner.Model
 	quitting      bool
 	status        string // transient one-line status shown in the footer
+	showHelp      bool   // '?' overlay
+	confirm       string // non-empty → a y/n confirmation modal is shown
 
 	// Dashboard
 	report       *analytics.Report
@@ -68,6 +71,7 @@ type Model struct {
 	cleanCursor  int
 	cleanFreedKB int64
 	cleanDone    bool
+	cleanDrill   bool // show the highlighted group's paths
 
 	// Jobs
 	jobs      []job.Job
@@ -115,9 +119,11 @@ func New(a *app.App, now func() time.Time) Model {
 	}
 }
 
-// Run starts the program on the alt screen and blocks until the user quits.
+// Run starts the program on the alt screen with mouse tracking enabled, and
+// blocks until the user quits. Mouse support powers wheel scrolling and
+// click-to-navigate (see handleMouse).
 func Run(a *app.App, now func() time.Time) error {
-	_, err := tea.NewProgram(New(a, now), tea.WithAltScreen()).Run()
+	_, err := tea.NewProgram(New(a, now), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
 
@@ -191,10 +197,80 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = string(msg)
 		return m, nil
 
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
 	return m, nil
+}
+
+// handleMouse routes mouse input: the wheel scrolls the active module's list,
+// and a left click on the module rail switches modules. Clicks are ignored
+// while the job form modal is open.
+func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.form != nil {
+		return m, nil
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.scroll(-1)
+		return m, nil
+	case tea.MouseButtonWheelDown:
+		m.scroll(1)
+		return m, nil
+	}
+	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		if mod, ok := m.navHit(msg.X, msg.Y); ok {
+			m.active = mod
+			m.status = ""
+			return m, m.onEnterModule()
+		}
+	}
+	return m, nil
+}
+
+// scroll moves the active module's cursor/offset by delta (used by the wheel and
+// mirrors the arrow keys), clamped to valid bounds.
+func (m *Model) scroll(delta int) {
+	switch m.active {
+	case modCleanup:
+		m.cleanCursor = clamp(m.cleanCursor+delta, 0, len(m.cleanupItems)-1)
+	case modJobs:
+		m.jobCursor = clamp(m.jobCursor+delta, 0, len(m.jobs)-1)
+	case modHistory:
+		m.histOffset = clamp(m.histOffset+delta, 0, maxInt(0, len(m.runs)-1))
+	case modSettings:
+		m.setCursor = clamp(m.setCursor+delta, 0, len(settingLabels)-1)
+	}
+}
+
+// navHit maps a click coordinate to a module rail entry. It returns ok=false
+// when the click lands outside the rail. Geometry mirrors View: the rail begins
+// one row below the header, indented by the rail's top padding.
+func (m Model) navHit(x, y int) (module, bool) {
+	headerH := lipgloss.Height(m.viewHeader())
+	railW := lipgloss.Width(styleRail.Render(m.viewNav()))
+	idx := y - headerH - 1 // -1 for the rail's top padding row
+	if x <= railW && idx >= 0 && idx < len(navLabels) {
+		return module(idx), true
+	}
+	return 0, false
+}
+
+// clamp constrains v to [lo, hi]; if hi < lo it returns lo.
+func clamp(v, lo, hi int) int {
+	if hi < lo {
+		return lo
+	}
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // handleKey routes a key press. When a modal (the job form) is open it captures
@@ -204,10 +280,32 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.form != nil {
 		return m.updateForm(msg)
 	}
+	// Confirmation modal captures input until answered.
+	if m.confirm != "" {
+		switch msg.String() {
+		case "y", "Y", "enter":
+			return m.runConfirmed()
+		case "n", "N", "esc", "q":
+			m.confirm = ""
+		}
+		return m, nil
+	}
+	// Help overlay: any key (except quit) dismisses it.
+	if m.showHelp {
+		if msg.String() == "ctrl+c" {
+			m.quitting = true
+			return m, tea.Quit
+		}
+		m.showHelp = false
+		return m, nil
+	}
 	switch msg.String() {
 	case "ctrl+c", "q":
 		m.quitting = true
 		return m, tea.Quit
+	case "?":
+		m.showHelp = true
+		return m, nil
 	case "tab":
 		m.active = (m.active + 1) % moduleCount
 		return m, m.onEnterModule()
@@ -250,7 +348,17 @@ func (m Model) onEnterModule() tea.Cmd {
 	return nil
 }
 
-// View assembles the persistent chrome around the active module's content.
+// runConfirmed executes the pending confirmed action. Currently the only
+// confirmation guards a permanent Cleanup deletion.
+func (m Model) runConfirmed() (tea.Model, tea.Cmd) {
+	m.confirm = ""
+	m.cleaning = true
+	return m, tea.Batch(m.spinner.Tick, m.cleanCmd())
+}
+
+// View assembles the persistent chrome — header, module rail, bordered content
+// panel, footer — around the active module's content, with modal overlays for
+// help and confirmations.
 func (m Model) View() string {
 	if m.quitting {
 		return ""
@@ -258,59 +366,77 @@ func (m Model) View() string {
 	header := m.viewHeader()
 	footer := m.viewFooter()
 
-	railW := 14
-	bodyH := m.height - lipgloss.Height(header) - lipgloss.Height(footer) - 1
-	if bodyH < 4 {
-		bodyH = 4
+	bodyH := m.height - lipgloss.Height(header) - lipgloss.Height(footer)
+	if bodyH < 6 {
+		bodyH = 6
 	}
 	rail := styleRail.Height(bodyH).Render(m.viewNav())
-	contentW := m.width - lipgloss.Width(rail) - 2
-	if contentW < 20 {
-		contentW = 20
+
+	// The content panel is a rounded box filling the remaining width/height.
+	innerW := m.width - lipgloss.Width(rail) - 4 // borders + padding
+	if innerW < 24 {
+		innerW = 24
 	}
-	content := lipgloss.NewStyle().Width(contentW).Height(bodyH).Padding(0, 1).Render(m.viewContent(contentW))
-	body := lipgloss.JoinHorizontal(lipgloss.Top, rail, content)
-	_ = railW
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+	panelH := bodyH - 2 // account for the panel's top/bottom border
+	if panelH < 4 {
+		panelH = 4
+	}
+	body := m.panelBody(innerW, panelH)
+	panel := stylePanel.Width(innerW).Height(panelH).Render(body)
+	row := lipgloss.JoinHorizontal(lipgloss.Top, rail, panel)
+	return lipgloss.JoinVertical(lipgloss.Left, header, row, footer)
 }
 
-// viewHeader renders the title bar with the live maintenance score.
-func (m Model) viewHeader() string {
-	title := styleTitle.Render("🧹 FS Janitor")
-	score := styleDim.Render("  score: computing…")
-	if m.report != nil {
-		g := m.report.Grade
-		st := styleGood
-		if m.report.Score < 75 {
-			st = styleWarn
-		}
-		if m.report.Score < 40 {
-			st = styleDanger
-		}
-		score = "  " + styleDim.Render("Maintenance ") + st.Render(itoa(m.report.Score)+"/100 ("+g+")")
+// panelBody returns the content for the panel: a modal (help/confirm/form) when
+// one is active, otherwise the active module's own view, always led by a title.
+func (m Model) panelBody(w, h int) string {
+	switch {
+	case m.showHelp:
+		return m.viewHelp()
+	case m.confirm != "":
+		return m.viewConfirm(w)
+	case m.form != nil:
+		return m.viewForm()
 	}
-	line := lipgloss.JoinHorizontal(lipgloss.Left, title, score)
+	return m.viewContent(w)
+}
+
+// viewHeader renders the title bar with the live maintenance-score badge.
+func (m Model) viewHeader() string {
+	title := styleTitle.Render("FS Janitor") +
+		styleFaint.Render("  ·  filesystem maintenance for macOS")
+	right := styleDim.Render("score computing…")
+	if m.report != nil {
+		col := scoreColor(m.report.Score)
+		right = styleDim.Render("Maintenance ") +
+			badge(itoa(m.report.Score)+"/100 "+m.report.Grade, col)
+	}
+	gap := m.width - 2 - lipgloss.Width(title) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	line := title + strings.Repeat(" ", gap) + right
 	return styleHeader.Width(m.width - 2).Render(line)
 }
 
-// viewNav renders the left module rail with the active entry highlighted.
+// viewNav renders the left module rail: icon + label per module, with the active
+// entry filled and flagged by a pink leading bar.
 func (m Model) viewNav() string {
-	out := ""
+	var b strings.Builder
 	for i, label := range navLabels {
-		row := styleNav.Render(itoa(i+1) + " " + label)
+		text := " " + navIcons[i] + "  " + label + " "
 		if module(i) == m.active {
-			row = styleNavActive.Render(itoa(i+1) + " " + label)
+			b.WriteString(styleCursor.Render("▌") + styleNavActive.Render(text))
+		} else {
+			b.WriteString(" " + styleNav.Render(text))
 		}
-		out += row + "\n"
+		b.WriteString("\n")
 	}
-	return out
+	return b.String()
 }
 
 // viewContent dispatches to the active module's renderer.
 func (m Model) viewContent(w int) string {
-	if m.form != nil {
-		return m.viewForm()
-	}
 	switch m.active {
 	case modDashboard:
 		return m.viewDashboard(w)
@@ -326,35 +452,69 @@ func (m Model) viewContent(w int) string {
 	return ""
 }
 
+// viewConfirm renders a centred y/n confirmation modal.
+func (m Model) viewConfirm(w int) string {
+	var b strings.Builder
+	b.WriteString(styleDanger.Render("⚠  Confirm") + "\n\n")
+	b.WriteString(styleBody.Render(m.confirm) + "\n\n")
+	b.WriteString(keyLegend([2]string{"y", "yes"}, [2]string{"n", "cancel"}))
+	return b.String()
+}
+
+// viewHelp renders the full keybinding reference overlay.
+func (m Model) viewHelp() string {
+	var b strings.Builder
+	b.WriteString(panelTitle("Keyboard & Mouse") + "\n\n")
+	sec := func(title string, rows ...[2]string) {
+		b.WriteString(styleHeading.Render(title) + "\n")
+		for _, r := range rows {
+			b.WriteString("  " + keyHint(padRight(r[0], 12), r[1]) + "\n")
+		}
+		b.WriteString("\n")
+	}
+	sec("Global",
+		[2]string{"1–5 / tab", "switch module"},
+		[2]string{"wheel", "scroll list"},
+		[2]string{"click", "select a module in the rail"},
+		[2]string{"?", "toggle this help"},
+		[2]string{"q", "quit"})
+	sec("Cleanup",
+		[2]string{"s", "scan"}, [2]string{"space", "select"},
+		[2]string{"a", "select all"}, [2]string{"d", "show paths"},
+		[2]string{"enter", "clean selection"})
+	sec("Jobs",
+		[2]string{"n", "new job"}, [2]string{"e", "enable/disable"},
+		[2]string{"x", "delete"}, [2]string{"r", "run due now"})
+	b.WriteString(styleFaint.Render("press any key to close"))
+	return b.String()
+}
+
 // viewFooter renders context key hints plus any transient status message.
 func (m Model) viewFooter() string {
 	hints := m.footerHints()
 	if m.status != "" {
-		hints = styleGood.Render(m.status) + styleDim.Render("   ·   ") + hints
+		hints = styleGood.Render("• "+m.status) + styleFaint.Render("    ") + hints
 	}
 	return styleFooter.Width(m.width - 2).Render(hints)
 }
 
-// footerHints returns the key legend for the active module.
+// footerHints returns the key legend for the active module (plus the global set).
 func (m Model) footerHints() string {
-	global := "tab switch · 1-5 modules · q quit"
-	var local string
+	var local [][2]string
 	switch m.active {
 	case modDashboard:
-		local = "r rescan"
+		local = [][2]string{{"r", "rescan"}}
 	case modCleanup:
-		local = "s scan · ↑↓ move · space select · a all · enter clean"
+		local = [][2]string{{"s", "scan"}, {"space", "select"}, {"a", "all"}, {"d", "paths"}, {"enter", "clean"}}
 	case modJobs:
-		local = "↑↓ move · n new · e enable · x delete · r run due"
+		local = [][2]string{{"n", "new"}, {"e", "toggle"}, {"x", "delete"}, {"r", "run due"}}
 	case modHistory:
-		local = "↑↓ scroll"
+		local = [][2]string{{"↑↓", "scroll"}}
 	case modSettings:
-		local = "↑↓ move · space toggle · enter apply"
+		local = [][2]string{{"space", "toggle"}}
 	}
-	if local != "" {
-		return styleDim.Render(local + "  ·  " + global)
-	}
-	return styleDim.Render(global)
+	global := [][2]string{{"tab", "switch"}, {"?", "help"}, {"q", "quit"}}
+	return keyLegend(append(local, global...)...)
 }
 
 // ---- shared commands ----

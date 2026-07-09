@@ -1,51 +1,109 @@
-// styles.go centralizes the Lip Gloss styles for the FS Janitor TUI so the look
-// is defined once and stays consistent across every screen. Colours are chosen
-// from the 256-colour palette for broad terminal compatibility.
+// styles.go centralizes the Lip Gloss styling for the FS Janitor TUI so the
+// look is defined once and stays cohesive across every screen: one palette, one
+// set of panel/row/heading styles, and a couple of shared render helpers (the
+// score meter and key hints). Colours come from the 256-colour palette for
+// broad terminal compatibility.
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+// Palette. A restrained set: one cyan accent, one pink selection, plus the
+// semantic good/warn/danger trio and two greys for body/secondary text.
+var (
+	colAccent = lipgloss.Color("45")  // bright cyan — brand / active
+	colAccDim = lipgloss.Color("31")  // muted cyan — borders, rules
+	colGood   = lipgloss.Color("84")  // green — sizes, healthy
+	colWarn   = lipgloss.Color("214") // amber — warnings
+	colDanger = lipgloss.Color("203") // red — destructive
+	colSel    = lipgloss.Color("212") // pink — cursor / selection
+	colDim    = lipgloss.Color("245") // grey — secondary text
+	colFaint  = lipgloss.Color("240") // darker grey — rules, disabled
+	colFg     = lipgloss.Color("252") // near-white — body text
+	colInk    = lipgloss.Color("233") // dark — text on accent fills
+)
 
 var (
-	// Brand / accent colours.
-	colAccent = lipgloss.Color("39")  // cyan-blue — primary
-	colGood   = lipgloss.Color("42")  // green — sizes, healthy
-	colWarn   = lipgloss.Color("214") // amber — warnings
-	colDanger = lipgloss.Color("196") // red — destructive
-	colDim    = lipgloss.Color("245") // grey — secondary text
-	colSel    = lipgloss.Color("205") // pink — cursor/selection
-	colFg     = lipgloss.Color("252") // near-white body text
-
 	styleTitle   = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
 	styleHeading = lipgloss.NewStyle().Bold(true).Foreground(colWarn)
 	styleDim     = lipgloss.NewStyle().Foreground(colDim)
+	styleFaint   = lipgloss.NewStyle().Foreground(colFaint)
 	styleGood    = lipgloss.NewStyle().Foreground(colGood)
 	styleWarn    = lipgloss.NewStyle().Foreground(colWarn)
 	styleDanger  = lipgloss.NewStyle().Bold(true).Foreground(colDanger)
 	styleCursor  = lipgloss.NewStyle().Bold(true).Foreground(colSel)
 	styleBody    = lipgloss.NewStyle().Foreground(colFg)
 
-	// navItem / navActive style the left module rail.
-	styleNav       = lipgloss.NewStyle().Foreground(colDim).Padding(0, 1)
-	styleNavActive = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).
-			Background(colAccent).Padding(0, 1)
+	// rowSelected highlights the row under the cursor across the content width.
+	rowSelected = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).
+			Background(colAccDim)
 
-	// Panel borders for the header, nav and content regions.
+	// Module rail entries. Active adds a pink leading bar and an accent fill.
+	styleNav       = lipgloss.NewStyle().Foreground(colDim)
+	styleNavActive = lipgloss.NewStyle().Bold(true).Foreground(colInk).Background(colAccent)
+
+	// Chrome: header (bottom rule), the bordered content panel, footer (top rule).
 	styleHeader = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder(), false, false, true, false).
-			BorderForeground(colAccent).Padding(0, 1)
-	styleContent = lipgloss.NewStyle().Padding(1, 2)
-	styleFooter  = lipgloss.NewStyle().Foreground(colDim).
-			Border(lipgloss.RoundedBorder(), true, false, false, false).
-			BorderForeground(colDim).Padding(0, 1)
-	styleRail = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder(), false, true, false, false).
-			BorderForeground(colDim).Padding(1, 2, 1, 1)
+			Border(lipgloss.NormalBorder(), false, false, true, false).
+			BorderForeground(colAccDim).Padding(0, 1)
+	stylePanel = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).BorderForeground(colFaint).Padding(0, 1)
+	styleFooter = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), true, false, false, false).
+			BorderForeground(colFaint).Padding(0, 1)
+	styleRail = lipgloss.NewStyle().Padding(1, 2, 0, 1)
+
+	// A pink score/grade badge and a neutral pill for the header.
+	styleBadge = lipgloss.NewStyle().Bold(true).Padding(0, 1)
 )
 
+// navIcons parallel navLabels: a single-width glyph per module.
+var navIcons = []string{"◆", "✦", "◇", "≡", "⚙"}
+
+// panelTitle renders the small caption shown at the top of a content panel.
+func panelTitle(s string) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render(s)
+}
+
+// keyHint renders a "key action" pair for the footer legend.
+func keyHint(key, action string) string {
+	k := lipgloss.NewStyle().Foreground(colAccent).Bold(true).Render(key)
+	return k + " " + lipgloss.NewStyle().Foreground(colDim).Render(action)
+}
+
+// keyLegend joins several key hints with a thin separator.
+func keyLegend(pairs ...[2]string) string {
+	parts := make([]string, 0, len(pairs))
+	for _, p := range pairs {
+		parts = append(parts, keyHint(p[0], p[1]))
+	}
+	sep := lipgloss.NewStyle().Foreground(colFaint).Render("  ·  ")
+	return strings.Join(parts, sep)
+}
+
+// badge renders a filled, coloured pill (used for the header score/grade).
+func badge(text string, fg lipgloss.Color) string {
+	return styleBadge.Foreground(colInk).Background(fg).Render(text)
+}
+
+// scoreColor maps a maintenance score to its semantic colour.
+func scoreColor(score int) lipgloss.Color {
+	switch {
+	case score >= 75:
+		return colGood
+	case score >= 40:
+		return colWarn
+	default:
+		return colDanger
+	}
+}
+
 // bar renders a horizontal meter of the given width filled to pct (0..1) using
-// block glyphs, coloured by health (green high, amber mid, red low). Used by the
-// dashboard maintenance score.
-func bar(pct float64, width int, healthy bool) string {
+// block glyphs, coloured by health. Used by the dashboard score meter.
+func bar(pct float64, width int, col lipgloss.Color) string {
 	if width < 4 {
 		width = 4
 	}
@@ -56,24 +114,15 @@ func bar(pct float64, width int, healthy bool) string {
 		pct = 1
 	}
 	filled := int(pct*float64(width) + 0.5)
-	col := colGood
-	switch {
-	case !healthy:
-		col = colDanger
-	case pct < 0.5:
-		col = colDanger
-	case pct < 0.8:
-		col = colWarn
-	}
 	on := lipgloss.NewStyle().Foreground(col)
-	off := lipgloss.NewStyle().Foreground(colDim)
-	out := ""
+	off := lipgloss.NewStyle().Foreground(colFaint)
+	var b strings.Builder
 	for i := 0; i < width; i++ {
 		if i < filled {
-			out += on.Render("█")
+			b.WriteString(on.Render("█"))
 		} else {
-			out += off.Render("░")
+			b.WriteString(off.Render("░"))
 		}
 	}
-	return out
+	return b.String()
 }
